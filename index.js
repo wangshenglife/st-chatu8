@@ -15938,6 +15938,7 @@ async function executeDefaultLLMRequest(data, profileData, updateResultUI = null
       requestBody = {
         model,
         messages: outboundMessages,
+        thinking: { type: "disabled" },
         temperature,
         top_p,
         max_tokens,
