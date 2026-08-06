@@ -16281,24 +16281,66 @@ function getEffectiveConfigForRequestType(requestType) {
     context: contextProfile
   };
 }
-function buildPromptForRequestType(requestType, triggerText = "") {
+function getManualImageTriggerSelectionState(context = getContext2()) {
+  const configs = extension_settings13[extensionName].llm_request_type_configs || {};
+  const typeConfig = configs.image_gen || { context_profile: "\u9ED8\u8BA4" };
+  const contextProfiles = extension_settings13[extensionName].test_context_profiles || {};
+  const configuredProfileName = typeConfig.context_profile || "\u9ED8\u8BA4";
+  const fallbackProfileName = Object.keys(contextProfiles)[0] || configuredProfileName;
+  const contextProfileName = Object.prototype.hasOwnProperty.call(contextProfiles, configuredProfileName) ? configuredProfileName : fallbackProfileName;
+  const contextProfile = contextProfiles[contextProfileName] || {};
+  const availableEntries = Array.isArray(contextProfile.entries) ? contextProfile.entries.filter((entry) => {
+    return entry?.enabled !== false && entry?.triggerMode === "trigger" && entry?.id !== void 0 && entry?.id !== null && String(entry.id).trim() !== "" && typeof entry?.triggerWords === "string" && entry.triggerWords.trim() !== "";
+  }) : [];
+  const savedSelections = context?.chatMetadata?.["st-chatu8"]?.manualImageTriggerSelections?.[contextProfileName];
+  const savedIdSet = new Set(Array.isArray(savedSelections) ? savedSelections.map((id) => String(id)) : []);
+  const selectedEntries = availableEntries.filter((entry) => savedIdSet.has(String(entry.id)));
+  return {
+    contextProfileName,
+    availableEntries,
+    selectedEntries,
+    selectedEntryIds: selectedEntries.map((entry) => entry.id)
+  };
+}
+function saveManualImageTriggerSelections(contextProfileName, entryIds, context = getContext2()) {
+  if (!context?.chatMetadata || !contextProfileName) return;
+  const uniqueEntryIds = [];
+  const seenIds = /* @__PURE__ */ new Set();
+  for (const entryId of Array.isArray(entryIds) ? entryIds : []) {
+    if (entryId === void 0 || entryId === null || String(entryId).trim() === "") continue;
+    const normalizedId = String(entryId);
+    if (seenIds.has(normalizedId)) continue;
+    seenIds.add(normalizedId);
+    uniqueEntryIds.push(entryId);
+  }
+  context.chatMetadata["st-chatu8"] = context.chatMetadata["st-chatu8"] || {};
+  const pluginMetadata = context.chatMetadata["st-chatu8"];
+  pluginMetadata.manualImageTriggerSelections = pluginMetadata.manualImageTriggerSelections || {};
+  pluginMetadata.manualImageTriggerSelections[contextProfileName] = uniqueEntryIds;
+  saveChatConditional2();
+}
+function buildPromptForRequestType(requestType, triggerText = "", forcedEntryIds = []) {
   const configs = extension_settings13[extensionName].llm_request_type_configs || {};
   const typeConfig = configs[requestType] || { context_profile: "\u9ED8\u8BA4" };
   const contextProfileName = typeConfig.context_profile || "\u9ED8\u8BA4";
   const contextProfiles = extension_settings13[extensionName].test_context_profiles || {};
   const contextProfile = contextProfiles[contextProfileName] || contextProfiles[Object.keys(contextProfiles)[0]] || {};
+  const forcedEntryIdSet = new Set((Array.isArray(forcedEntryIds) ? forcedEntryIds : []).map((id) => String(id)));
   const messages = [];
   if (contextProfile.entries && Array.isArray(contextProfile.entries)) {
     contextProfile.entries.forEach((entry) => {
-      if (!entry.enabled) return;
+      const isForced = entry.triggerMode === "trigger" && entry.id !== void 0 && entry.id !== null && forcedEntryIdSet.has(String(entry.id));
+      if (entry.enabled === false || !entry.enabled && !isForced) return;
       if (!entry.content || entry.content.trim() === "") return;
       if (entry.triggerMode === "trigger") {
-        if (!triggerText || !checkTriggerWords(entry.triggerWords, triggerText)) {
-          return;
-        }
-        if (entry.andTriggerWords && entry.andTriggerWords.trim() !== "") {
-          if (!checkTriggerWords(entry.andTriggerWords, triggerText)) {
+        if (!isForced) {
+          if (!triggerText || !checkTriggerWords(entry.triggerWords, triggerText)) {
             return;
+          }
+          if (entry.andTriggerWords && entry.andTriggerWords.trim() !== "") {
+            if (!checkTriggerWords(entry.andTriggerWords, triggerText)) {
+              return;
+            }
           }
         }
       }
@@ -31605,8 +31647,18 @@ async function handlePromptRequest(el, gestureId) {
     \u8BF7\u6C42\u7C7B\u578B: "image_gen",
     \u6761\u76EE\u89E6\u53D1\u6587\u672C\u957F\u5EA6: entryTriggerText.length
   });
+  const manualTriggerState = getManualImageTriggerSelectionState(context);
+  const forcedEntryIds = manualTriggerState.selectedEntryIds;
+  debugLog("handlePromptRequest", "\u5E94\u7528\u5F53\u524D\u804A\u5929\u7684\u56FA\u5B9A\u89E6\u53D1\u6761\u76EE", {
+    \u4E0A\u4E0B\u6587\u9884\u8BBE: manualTriggerState.contextProfileName,
+    \u56FA\u5B9A\u6761\u76EE\u6570\u91CF: forcedEntryIds.length,
+    \u56FA\u5B9A\u6761\u76EE: manualTriggerState.selectedEntries.map((entry) => ({
+      id: entry.id,
+      name: entry.name || "\u672A\u547D\u540D\u6761\u76EE"
+    }))
+  });
   const buildTimer = debugTimer("buildPromptForRequestType", "\u6784\u5EFA\u8BF7\u6C42\u7C7B\u578B Prompt");
-  let promt = buildPromptForRequestType("image_gen", entryTriggerText);
+  let promt = buildPromptForRequestType("image_gen", entryTriggerText, forcedEntryIds);
   buildTimer.end(`\u6D88\u606F\u6570\u91CF: ${promt?.length || 0}`);
   if (!promt || promt.length === 0) {
     throw new Error('\u672A\u80FD\u83B7\u53D6\u5230\u63D0\u793A\u8BCD\uFF0C\u8BF7\u68C0\u67E5 LLM \u8BBE\u7F6E\u4E2D"\u6B63\u6587\u56FE\u7247\u751F\u6210"\u7684\u4E0A\u4E0B\u6587\u9884\u8BBE\u914D\u7F6E');
@@ -34167,6 +34219,182 @@ function showBananaRetouchDialog(originalImgElement, originalButton) {
   dialog.appendChild(buttonContainer);
   input.focus();
 }
+function showManualImageTriggerSelectionDialog(doc, onSelectionChanged) {
+  const state = getManualImageTriggerSelectionState();
+  const selectedIdSet = new Set(state.selectedEntryIds.map((id) => String(id)));
+  doc.querySelector(".st-chatu8-manual-trigger-backdrop")?.remove();
+  const backdrop = doc.createElement("div");
+  backdrop.className = "st-chatu8-manual-trigger-backdrop";
+  backdrop.style.cssText = `
+        position: fixed;
+        inset: 0;
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        box-sizing: border-box;
+        background: rgba(0, 0, 0, 0.58);
+    `;
+  const dialog = doc.createElement("div");
+  dialog.style.cssText = `
+        width: min(560px, 92vw);
+        max-height: min(720px, 86vh);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 18px;
+        box-sizing: border-box;
+        overflow: hidden;
+        border: 1px solid var(--st-chatu8-border-color, #444);
+        border-radius: 12px;
+        background: var(--st-chatu8-bg-primary, #2a2a2a);
+        color: var(--st-chatu8-text-primary, #fff);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    `;
+  const title = doc.createElement("div");
+  title.style.cssText = "font-size: 1.15em; font-weight: bold;";
+  title.textContent = "\u{1F4CC} \u56FA\u5B9A\u89E6\u53D1\u6761\u76EE";
+  const profileHint = doc.createElement("div");
+  profileHint.style.cssText = "font-size: 0.82em; color: var(--st-chatu8-text-secondary, #bbb);";
+  profileHint.textContent = `\u5F53\u524D image_gen \u4E0A\u4E0B\u6587\u9884\u8BBE\uFF1A${state.contextProfileName}`;
+  const searchInput = doc.createElement("input");
+  searchInput.type = "search";
+  searchInput.placeholder = "\u641C\u7D22\u540D\u79F0\u6216 triggerWords";
+  searchInput.style.cssText = `
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 11px;
+        border: 1px solid var(--st-chatu8-input-border, #555);
+        border-radius: 7px;
+        background: var(--st-chatu8-input-bg, #1f1f1f);
+        color: var(--st-chatu8-input-text, #fff);
+    `;
+  const countLabel = doc.createElement("div");
+  countLabel.style.cssText = "font-size: 0.86em; color: var(--st-chatu8-text-secondary, #bbb);";
+  const updateCount = () => {
+    countLabel.textContent = `\u5DF2\u9009 ${selectedIdSet.size} \u6761`;
+  };
+  const list = doc.createElement("div");
+  list.style.cssText = `
+        min-height: 120px;
+        overflow-y: auto;
+        border: 1px solid var(--st-chatu8-border-color, #444);
+        border-radius: 8px;
+        padding: 6px;
+        background: var(--st-chatu8-bg-secondary, #222);
+    `;
+  const entryRows = state.availableEntries.map((entry) => {
+    const normalizedId = String(entry.id);
+    const row = doc.createElement("label");
+    row.style.cssText = `
+          display: flex;
+          align-items: flex-start;
+          gap: 9px;
+          padding: 9px;
+          border-radius: 7px;
+          cursor: pointer;
+      `;
+    const checkbox = doc.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedIdSet.has(normalizedId);
+    checkbox.style.marginTop = "3px";
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedIdSet.add(normalizedId);
+      } else {
+        selectedIdSet.delete(normalizedId);
+      }
+      updateCount();
+    });
+    const textContainer = doc.createElement("span");
+    textContainer.style.cssText = "min-width: 0; display: flex; flex-direction: column; gap: 3px;";
+    const name = doc.createElement("span");
+    name.textContent = entry.name || "\u672A\u547D\u540D\u6761\u76EE";
+    const triggerWords = doc.createElement("span");
+    triggerWords.style.cssText = "font-size: 0.78em; color: var(--st-chatu8-text-secondary, #aaa); overflow-wrap: anywhere;";
+    triggerWords.textContent = entry.triggerWords;
+    textContainer.appendChild(name);
+    textContainer.appendChild(triggerWords);
+    row.appendChild(checkbox);
+    row.appendChild(textContainer);
+    list.appendChild(row);
+    return {
+      entry,
+      row,
+      searchText: `${entry.name || ""}\n${entry.triggerWords}`.toLocaleLowerCase()
+    };
+  });
+  if (entryRows.length === 0) {
+    const emptyHint = doc.createElement("div");
+    emptyHint.style.cssText = "padding: 18px; text-align: center; color: var(--st-chatu8-text-secondary, #aaa);";
+    emptyHint.textContent = "\u5F53\u524D\u9884\u8BBE\u6CA1\u6709\u53EF\u56FA\u5B9A\u7684 trigger \u6761\u76EE";
+    list.appendChild(emptyHint);
+  }
+  searchInput.addEventListener("input", () => {
+    const query = searchInput.value.trim().toLocaleLowerCase();
+    entryRows.forEach(({ row, searchText }) => {
+      row.style.display = !query || searchText.includes(query) ? "flex" : "none";
+    });
+  });
+  const buttonContainer = doc.createElement("div");
+  buttonContainer.style.cssText = "display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px;";
+  const makeButton = (text2, primary = false) => {
+    const button2 = doc.createElement("button");
+    button2.type = "button";
+    button2.textContent = text2;
+    button2.style.cssText = `
+          padding: 7px 13px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          background: ${primary ? "var(--st-chatu8-accent-primary, #5865f2)" : "var(--st-chatu8-bg-secondary, #444)"};
+          color: ${primary ? "#fff" : "var(--st-chatu8-text-primary, #fff)"};
+      `;
+    return button2;
+  };
+  const saveButton = makeButton("\u4FDD\u5B58", true);
+  const clearButton = makeButton("\u6E05\u7A7A");
+  const cancelButton = makeButton("\u53D6\u6D88");
+  const keydownHandler = (event) => {
+    if (event.key === "Escape") closeDialog();
+  };
+  const closeDialog = () => {
+    doc.removeEventListener("keydown", keydownHandler);
+    backdrop.remove();
+  };
+  const saveSelection = (entryIds) => {
+    saveManualImageTriggerSelections(state.contextProfileName, entryIds);
+    const updatedState = getManualImageTriggerSelectionState();
+    onSelectionChanged?.(updatedState);
+    closeDialog();
+    toastr.success(entryIds.length > 0 ? `\u5DF2\u56FA\u5B9A ${updatedState.selectedEntryIds.length} \u4E2A\u89E6\u53D1\u6761\u76EE` : "\u5DF2\u6E05\u7A7A\u56FA\u5B9A\u89E6\u53D1\u6761\u76EE");
+  };
+  saveButton.onclick = () => {
+    const entryIds = entryRows.filter(({ entry }) => selectedIdSet.has(String(entry.id))).map(({ entry }) => entry.id);
+    saveSelection(entryIds);
+  };
+  clearButton.onclick = () => saveSelection([]);
+  cancelButton.onclick = closeDialog;
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) closeDialog();
+  });
+  dialog.addEventListener("click", (event) => event.stopPropagation());
+  buttonContainer.appendChild(clearButton);
+  buttonContainer.appendChild(cancelButton);
+  buttonContainer.appendChild(saveButton);
+  updateCount();
+  dialog.appendChild(title);
+  dialog.appendChild(profileHint);
+  dialog.appendChild(searchInput);
+  dialog.appendChild(countLabel);
+  dialog.appendChild(list);
+  dialog.appendChild(buttonContainer);
+  backdrop.appendChild(dialog);
+  doc.body.appendChild(backdrop);
+  doc.addEventListener("keydown", keydownHandler);
+  searchInput.focus();
+}
 function showEditDialog(img, button) {
   const doc = window.top.document;
   const currentTag = button.dataset.change || button.dataset.link;
@@ -34470,6 +34698,24 @@ function showEditDialog(img, button) {
     toastr.success("Tag\u5DF2\u91CD\u7F6E");
     if (typeof debouncedUpdateDialogTokens === "function") debouncedUpdateDialogTokens();
   };
+  const manualTriggerButton = doc.createElement("button");
+  manualTriggerButton.className = "st-chatu8-tag-action-item";
+  manualTriggerButton.style.cssText = resetButton.style.cssText;
+  const updateManualTriggerButton = (state = getManualImageTriggerSelectionState()) => {
+    const count = state.selectedEntryIds.length;
+    manualTriggerButton.textContent = `\u{1F4CC} \u56FA\u5B9A\u89E6\u53D1\u6761\u76EE${count > 0 ? `\uFF08${count}\uFF09` : ""}`;
+  };
+  updateManualTriggerButton();
+  manualTriggerButton.onmouseenter = () => {
+    manualTriggerButton.style.backgroundColor = "var(--st-chatu8-accent-secondary, #3a3a3a)";
+  };
+  manualTriggerButton.onmouseleave = () => {
+    manualTriggerButton.style.backgroundColor = "transparent";
+  };
+  manualTriggerButton.onclick = () => {
+    tagActionsMenu.style.display = "none";
+    showManualImageTriggerSelectionDialog(doc, updateManualTriggerButton);
+  };
   const lockTagButton = doc.createElement("button");
   lockTagButton.className = "st-chatu8-tag-action-item";
   lockTagButton.innerHTML = "\u{1F512} \u9501\u5B9Atag";
@@ -34571,6 +34817,7 @@ function showEditDialog(img, button) {
     }
   };
   tagActionsMenu.appendChild(resetButton);
+  tagActionsMenu.appendChild(manualTriggerButton);
   tagActionsMenu.appendChild(lockTagButton);
   tagActionsMenu.appendChild(deleteTagButton);
   tagActionsButton.onclick = (e) => {
@@ -78464,6 +78711,8 @@ function showClickActionBubble(point, targetElement) {
   title.className = "st-chatu8-click-trigger-title";
   title.textContent = "\u9009\u62E9\u64CD\u4F5C";
   bubble.appendChild(title);
+  const manualTriggerState = getManualImageTriggerSelectionState();
+  const manualTriggerCount = manualTriggerState.selectedEntryIds.length;
   const buttons = [
     {
       text: "\u56FE\u7247\u751F\u6210",
@@ -78472,6 +78721,15 @@ function showClickActionBubble(point, targetElement) {
       action: () => {
         console.log("[\u70B9\u51FB\u89E6\u53D1] \u89E6\u53D1\u56FE\u7247\u751F\u6210");
         handlePromptRequest(targetElement, "gesture1");
+      }
+    },
+    {
+      text: `\u{1F4CC} \u56FA\u5B9A\u89E6\u53D1\u6761\u76EE${manualTriggerCount > 0 ? `\uFF08${manualTriggerCount}\uFF09` : ""}`,
+      icon: "fa-solid fa-thumbtack",
+      description: "\u9009\u62E9\u5F53\u524D\u804A\u5929\u540E\u7EED\u751F\u56FE\u5F3A\u5236\u4F7F\u7528\u7684 trigger \u6761\u76EE",
+      action: () => {
+        console.log("[\u70B9\u51FB\u89E6\u53D1] \u6253\u5F00\u56FA\u5B9A\u89E6\u53D1\u6761\u76EE\u9009\u62E9");
+        showManualImageTriggerSelectionDialog(window.top.document);
       }
     },
     {
