@@ -23,20 +23,40 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Merge upstream main
+      - name: Apply upstream changes
+        id: sync
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/damoshen123/st-chatu8.git
           git fetch upstream main
-          if git merge-base --is-ancestor upstream/main HEAD; then
+          target="$(git rev-parse upstream/main)"
+          if [ "$(cat .github/upstream-main.sha)" = "$target" ]; then
             echo "Fork main already contains upstream main."
-          else
-            git merge --no-ff --no-edit upstream/main
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          mkdir -p "$RUNNER_TEMP/fork-meta"
+          cp -R .github/. "$RUNNER_TEMP/fork-meta/"
+          git read-tree --reset -u upstream/main
+          mkdir -p .github
+          cp -R "$RUNNER_TEMP/fork-meta/." .github/
+          git add -A
+          git cherry-pick --no-commit 6edc2a7
+          printf '%s\n' "$target" > .github/upstream-main.sha
+          git add -A
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Check JavaScript syntax
+        if: steps.sync.outputs.changed == 'true'
         run: node --check index.js
 
+      - name: Commit upstream update
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          short_sha="$(git rev-parse --short upstream/main)"
+          git commit -m "chore: sync upstream main to $short_sha"
+
       - name: Push fork main
+        if: steps.sync.outputs.changed == 'true'
         run: git push origin HEAD:main
