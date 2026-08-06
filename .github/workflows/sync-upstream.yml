@@ -38,9 +38,11 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/fork-meta"
           cp -R .github/. "$RUNNER_TEMP/fork-meta/"
+          cp FORK_MAINTENANCE.md "$RUNNER_TEMP/FORK_MAINTENANCE.md"
           git read-tree --reset -u upstream/main
           mkdir -p .github
           cp -R "$RUNNER_TEMP/fork-meta/." .github/
+          cp "$RUNNER_TEMP/FORK_MAINTENANCE.md" FORK_MAINTENANCE.md
           git add -A
           git cherry-pick --no-commit 6edc2a7
           printf '%s\n' "$target" > .github/upstream-main.sha
