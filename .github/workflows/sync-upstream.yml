@@ -30,12 +30,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/damoshen123/st-chatu8.git
           git fetch upstream main
+          current_version="$(node -p "require('./manifest.json').version")"
+          upstream_version="$(git show upstream/main:manifest.json | node -e "let data=''; process.stdin.on('data', chunk => data += chunk); process.stdin.on('end', () => console.log(JSON.parse(data).version));")"
           target="$(git rev-parse upstream/main)"
-          if [ "$(cat .github/upstream-main.sha)" = "$target" ]; then
-            echo "Fork main already contains upstream main."
+          if [ "$current_version" = "$upstream_version" ]; then
+            echo "Plugin version is unchanged ($current_version); fork main will not be updated."
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "Plugin version changed: $current_version -> $upstream_version"
           mkdir -p "$RUNNER_TEMP/fork-meta"
           cp -R .github/. "$RUNNER_TEMP/fork-meta/"
           cp FORK_MAINTENANCE.md "$RUNNER_TEMP/FORK_MAINTENANCE.md"
@@ -45,6 +48,7 @@ jobs:
           cp "$RUNNER_TEMP/FORK_MAINTENANCE.md" FORK_MAINTENANCE.md
           git add -A
           git cherry-pick --no-commit 6edc2a7
+          git cherry-pick --no-commit fed4b40
           printf '%s\n' "$target" > .github/upstream-main.sha
           git add -A
           echo "changed=true" >> "$GITHUB_OUTPUT"

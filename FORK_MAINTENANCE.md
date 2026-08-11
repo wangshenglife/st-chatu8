@@ -11,6 +11,9 @@
 - `feature/manual-image-trigger-selections`
   - 「固定触发条目」功能的开发/参考分支。
   - 不要让云酒馆切换到此分支。
+- `fix/dedupe-image-matches-by-position`
+  - 「同一选文位置只保留一个生图结果」修复的开发/参考分支。
+  - 不要让云酒馆切换到此分支。
 - `.github/workflows/sync-upstream.yml`
   - 定时取得上游最新 `main`，重新施加本仓库的定制修改，再提交到本仓库 `main`。
 - `.github/upstream-main.sha`
@@ -23,10 +26,12 @@
 
 自动同步工作流每小时检查一次上游：
 
-1. 读取作者仓库最新的 `main` 文件。
-2. 以作者最新版为基础更新 fork。
-3. 重新施加「固定触发条目」修改。
-4. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
+1. 比较作者仓库与 fork 的 `manifest.json` 版本号；版本号不变时直接结束，不修改 fork。
+2. 版本号变化时，读取作者仓库最新的 `main` 文件。
+3. 以作者最新版为基础更新 fork。
+4. 重新施加「固定触发条目」修改。
+5. 重新施加「同一选文位置生图去重」修复。
+6. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
 
 不要使用 GitHub 页面上的 **Sync fork** 按钮。GitHub 可能因为本仓库包含定制提交而显示“冲突”，这不代表插件存在 Bug，也不影响本仓库自己的自动同步流程。
 
