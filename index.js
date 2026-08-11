@@ -13529,10 +13529,31 @@ async function insertImagesIntoElement(rootElement, images) {
     toastr.warning("\u56FE\u7247\u6807\u7B7E\u5168\u90E8\u65E0\u6CD5\u63D2\u5165\uFF1A\u6240\u6709 regex \u90FD\u672A\u80FD\u5728\u539F\u6587\u4E2D\u627E\u5230\u5339\u914D\u4F4D\u7F6E\u3002\u8BF7\u68C0\u67E5 LLM \u751F\u6210\u7684\u5B9A\u4F4D\u6587\u672C\u662F\u5426\u5B58\u5728\u4E8E\u5F53\u524D\u6D88\u606F\u4E2D\u3002");
     return;
   }
+  const positionUniqueMatches = [];
+  const positionIndexes = /* @__PURE__ */ new Map();
+  for (const match of matches) {
+    const normalizedMatchText = match.matchText?.trim().toLowerCase() || "";
+    const positionKey = Number.isFinite(match.endIndex) ? `end:${match.endIndex}` : `text:${normalizedMatchText}`;
+    const existingIndex = positionIndexes.get(positionKey);
+    if (existingIndex !== void 0) {
+      const existingMatch = positionUniqueMatches[existingIndex];
+      const existingHasTagThink = /<tag_think\b|tag_think\s*:/i.test(existingMatch.tag || "");
+      const currentHasTagThink = /<tag_think\b|tag_think\s*:/i.test(match.tag || "");
+      if (currentHasTagThink && !existingHasTagThink) {
+        positionUniqueMatches[existingIndex] = match;
+        console.log(`[insertImagesIntoElement] Replaced duplicate position with Tag_think result - position: ${positionKey}`);
+      } else {
+        console.log(`[insertImagesIntoElement] Skipping duplicate matched position - position: ${positionKey}`);
+      }
+      continue;
+    }
+    positionIndexes.set(positionKey, positionUniqueMatches.length);
+    positionUniqueMatches.push(match);
+  }
   const seenRegex = /* @__PURE__ */ new Set();
   const seenTags = /* @__PURE__ */ new Set();
   const uniqueMatches = [];
-  for (const match of matches) {
+  for (const match of positionUniqueMatches) {
     const regexKey = match.aiRegex?.trim().toLowerCase();
     const tagKey = match.tag?.trim().toLowerCase();
     if (regexKey && seenRegex.has(regexKey) || tagKey && seenTags.has(tagKey)) {
