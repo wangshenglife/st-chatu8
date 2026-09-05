@@ -49,6 +49,7 @@ jobs:
           git add -A
           git cherry-pick --no-commit 6edc2a7
           git cherry-pick --no-commit fed4b40
+          node .github/apply-thinking.cjs
           printf '%s\n' "$target" > .github/upstream-main.sha
           git add -A
           echo "changed=true" >> "$GITHUB_OUTPUT"

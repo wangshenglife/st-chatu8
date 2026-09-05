@@ -31,7 +31,8 @@
 3. 以作者最新版为基础更新 fork。
 4. 重新施加「固定触发条目」修改。
 5. 重新施加「同一选文位置生图去重」修复。
-6. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
+6. 执行 `.github/apply-thinking.cjs`，重新施加每个 LLM API 预设的 DeepSeek V4 思考模式控制（跟随接口、关闭、低、高、最大），包括直连、酒馆代理和连接测试。
+7. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
 
 不要使用 GitHub 页面上的 **Sync fork** 按钮。GitHub 可能因为本仓库包含定制提交而显示“冲突”，这不代表插件存在 Bug，也不影响本仓库自己的自动同步流程。
 

@@ -16309,6 +16309,7 @@ function getEffectiveConfigForRequestType(requestType) {
     stream: apiProfile.stream ?? false,
     bypass_proxy: apiProfile.bypass_proxy ?? false,
     send_images: apiProfile.send_images ?? false,
+    thinking_mode: apiProfile.thinking_mode ?? "default",
     // 上下文配置
     context: contextProfile
   };
@@ -16497,6 +16498,7 @@ async function executeTypedLLMRequest(data, requestType, responseEventName, upda
         stream
       };
     }
+    applyManualLlmThinking(requestBody, config, !bypass_proxy);
     if (updateResultUI && attempt === 0) {
       updateResultUI(`\u6B63\u5728\u5904\u7406 ${typeName} \u8BF7\u6C42\uFF0C\u8BF7\u7A0D\u5019...`);
     }
@@ -16821,6 +16823,7 @@ async function executeDefaultLLMRequest(data, profileData, updateResultUI = null
         stream: false
       };
     }
+    applyManualLlmThinking(requestBody, profileData, !bypass_proxy);
     if (updateResultUI && attempt === 0) {
       console.log('[DEBUG-SVC] \u2709 \u8C03\u7528 updateResultUI("\u6B63\u5728\u5904\u7406\u5916\u90E8\u8BF7\u6C42\uFF0C\u8BF7\u7A0D\u5019...")');
       updateResultUI("\u6B63\u5728\u5904\u7406\u5916\u90E8\u8BF7\u6C42\uFF0C\u8BF7\u7A0D\u5019...");
@@ -17765,6 +17768,7 @@ function onProfileSelectChange() {
     mergeSystemUserToggle.prop("checked", mergeSystemUser);
     const sendImages = profile.send_images ?? false;
     sendImagesToggle.prop("checked", sendImages);
+    $("#ch-llm_thinking_mode").val(profile.thinking_mode || "default");
     extension_settings14[extensionName].current_llm_profile = profileName;
     saveSettingsDebounced7();
   }
@@ -17786,6 +17790,16 @@ function onTestContextSelectChange() {
     saveSettingsDebounced7();
   }
 }
+function applyManualLlmThinking(body, profile, viaProxy = false) {
+  const mode = profile?.thinking_mode;
+  if (!["disabled", "low", "high", "max"].includes(mode)) return body;
+  const parameters = { thinking: { type: mode === "disabled" ? "disabled" : "enabled" } };
+  if (mode !== "disabled") parameters.reasoning_effort = mode;
+  // SillyTavern custom backends rebuild the body; inject using their YAML merge.
+  if (viaProxy) body.custom_include_body = JSON.stringify(parameters);
+  else Object.assign(body, parameters);
+  return body;
+}
 function collectProfileDataFromUI() {
   return {
     api_url: apiUrlInput.val(),
@@ -17797,7 +17811,8 @@ function collectProfileDataFromUI() {
     stream: streamToggle.prop("checked"),
     bypass_proxy: bypassProxyToggle.prop("checked"),
     merge_system_user: mergeSystemUserToggle.prop("checked"),
-    send_images: sendImagesToggle.prop("checked")
+    send_images: sendImagesToggle.prop("checked"),
+    thinking_mode: $("#ch-llm_thinking_mode").val() || "default"
   };
 }
 function onSaveProfileClick() {
@@ -18243,7 +18258,7 @@ async function onTestLLMClick() {
   testButton.prop("disabled", true);
   try {
     const messages = [{ role: "user", content: "Hello" }];
-    const body = { model, messages, temperature, top_p, max_tokens, stream: false };
+    const body = applyManualLlmThinking({ model, messages, temperature, top_p, max_tokens, stream: false }, currentData, !bypass_proxy);
     let response;
     if (bypass_proxy) {
       const requestUrl = api_url.replace(/\/$/, "") + "/chat/completions";
@@ -18734,6 +18749,15 @@ function cacheDOMElements() {
   bypassProxyToggle = $("#ch-llm_bypass_proxy");
   mergeSystemUserToggle = $("#ch-llm_merge_system_user");
   sendImagesToggle = $("#ch-llm_send_images");
+  if (!$("#ch-llm_thinking_mode").length) {
+    bypassProxyToggle.closest(".st-chatu8-field").after(      '<label style="display:block">DeepSeek V4 思考模式' +
+      '<select id="ch-llm_thinking_mode" class="text_pole">' +
+      '<option value="default">跟随接口（不发送参数）</option>' +
+      '<option value="disabled">关闭思考</option>' +
+      '<option value="low">低</option><option value="high">高</option>' +
+      '<option value="max">最大</option></select>' +
+      '<small>随 API 预设保存；中转需支持 thinking / reasoning_effort 参数。</small></label>');
+  }
   historyDepthSlider = $("#ch-llm_history_depth");
   historyDepthValue = $("#ch-llm_history_depth_value");
   retryCountSlider = $("#ch-llm_retry_count");
