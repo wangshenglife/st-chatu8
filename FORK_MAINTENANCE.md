@@ -9,7 +9,7 @@
   - 云酒馆安装始终跟踪此分支。
   - 只能通过普通提交向前更新，禁止 force push、rebase、reset 或改写历史。
 - `feature/manual-image-trigger-selections`
-  - 「固定触发条目」功能的开发/参考分支。
+  - 已停止合入 `main` 的历史参考分支。
   - 不要让云酒馆切换到此分支。
 - `fix/dedupe-image-matches-by-position`
   - 「同一选文位置只保留一个生图结果」修复的开发/参考分支。
@@ -29,10 +29,11 @@
 1. 比较作者仓库与 fork 的 `manifest.json` 版本号；版本号不变时直接结束，不修改 fork。
 2. 版本号变化时，读取作者仓库最新的 `main` 文件。
 3. 以作者最新版为基础更新 fork。
-4. 重新施加「固定触发条目」修改。
-5. 重新施加「同一选文位置生图去重」修复。
+4. 重新施加「同一选文位置生图去重」修复。
+5. 执行 `.github/apply-image-tag-guard.cjs`，重新施加生图 Tag 的 Prompt 防泄露保护；其内联源码位于 `.github/image-tag-prompt-guard.js`。
 6. 依次执行 `.github/apply-thinking.cjs`、`.github/apply-thinking-v2.cjs`，重新施加每个 LLM API 预设的思考参数控制、自动保存和 OpenRouter 类别；第二步从 `.github/thinking-runtime.js` 内联代码，包括直连、酒馆代理和连接测试。三个文件必须一同保留。
-7. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
+7. 不再向 `main` 施加「固定触发条目」功能。
+8. 通过 JavaScript 语法检查后，普通提交到 fork 的 `main`。
 
 不要使用 GitHub 页面上的 **Sync fork** 按钮。GitHub 可能因为本仓库包含定制提交而显示“冲突”，这不代表插件存在 Bug，也不影响本仓库自己的自动同步流程。
 

@@ -47,9 +47,8 @@ jobs:
           cp -R "$RUNNER_TEMP/fork-meta/." .github/
           cp "$RUNNER_TEMP/FORK_MAINTENANCE.md" FORK_MAINTENANCE.md
           git add -A
-          git cherry-pick --no-commit 6edc2a7
           git cherry-pick --no-commit fed4b40
-          git cherry-pick --no-commit 35a376a
+          node .github/apply-image-tag-guard.cjs
           node .github/apply-thinking.cjs
           node .github/apply-thinking-v2.cjs
           printf '%s\n' "$target" > .github/upstream-main.sha
