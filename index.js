@@ -83810,6 +83810,97 @@ async function findElement(messageId) {
   timer.end("\u672A\u627E\u5230\u5143\u7D20");
   return null;
 }
+var IMAGE_TAG_PROMPT_GUARD_SCRIPTS = [
+  {
+    scriptName: "st-chatu8-\u4E0D\u53D1\u9001image\u6807\u7B7E",
+    findRegex: "/<image>[\\s\\S]*?<\\/image>/g",
+    replaceString: "",
+    trimStrings: [],
+    placement: [1, 2],
+    disabled: false,
+    markdownOnly: false,
+    promptOnly: true,
+    runOnEdit: true,
+    substituteRegex: 0,
+    minDepth: null,
+    maxDepth: null
+  },
+  {
+    scriptName: "st-chatu8-\u9690\u85CFimgthink",
+    findRegex: "/<imgthink>[\\s\\S]*?<\\/imgthink>/g",
+    replaceString: "",
+    trimStrings: [],
+    placement: [2],
+    disabled: false,
+    markdownOnly: true,
+    promptOnly: true,
+    runOnEdit: true,
+    substituteRegex: 0,
+    minDepth: null,
+    maxDepth: null
+  }
+];
+function imageTagPromptGuardMatches(script, expected) {
+  if (!script) return false;
+  return Object.entries(expected).every(([key, value]) => JSON.stringify(script[key]) === JSON.stringify(value));
+}
+async function ensureImageTagPromptGuards({ notify = false } = {}) {
+  try {
+    const regexEngine = await import("../../regex/engine.js");
+    if (!regexEngine.getScriptsByType || !regexEngine.saveScriptsByType || regexEngine.SCRIPT_TYPES?.GLOBAL === void 0) {
+      console.warn("[Chatu8] Cannot protect image tags: regex engine API is unavailable");
+      if (notify) toastr.error("\u65E0\u6CD5\u786E\u8BA4 Prompt \u8FC7\u6EE4\u6B63\u5219\uFF0C\u5DF2\u4FDD\u6301\u201C\u63D2\u5165\u539F\u6587\u201D\u5173\u95ED\u3002");
+      return false;
+    }
+    const scriptType = regexEngine.SCRIPT_TYPES.GLOBAL;
+    const globalScripts = regexEngine.getScriptsByType(scriptType) || [];
+    let changed = false;
+    const repairedNames = [];
+    for (const expected of IMAGE_TAG_PROMPT_GUARD_SCRIPTS) {
+      let script = globalScripts.find((item) => item.scriptName === expected.scriptName);
+      if (!script) {
+        script = {
+          ...expected,
+          id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)
+        };
+        globalScripts.push(script);
+        changed = true;
+        repairedNames.push(expected.scriptName);
+        continue;
+      }
+      if (!imageTagPromptGuardMatches(script, expected)) {
+        Object.assign(script, expected);
+        changed = true;
+        repairedNames.push(expected.scriptName);
+      }
+    }
+    if (changed) {
+      await regexEngine.saveScriptsByType(globalScripts, scriptType);
+    }
+    const verifiedScripts = regexEngine.getScriptsByType(scriptType) || [];
+    const verified = IMAGE_TAG_PROMPT_GUARD_SCRIPTS.every((expected) => {
+      const script = verifiedScripts.find((item) => item.scriptName === expected.scriptName);
+      return imageTagPromptGuardMatches(script, expected);
+    });
+    if (!verified) {
+      console.error("[Chatu8] Image tag Prompt guards failed verification");
+      if (notify) toastr.error("Prompt \u8FC7\u6EE4\u6B63\u5219\u9A8C\u8BC1\u5931\u8D25\uFF0C\u5DF2\u4FDD\u6301\u201C\u63D2\u5165\u539F\u6587\u201D\u5173\u95ED\u3002");
+      return false;
+    }
+    if (notify) {
+      if (repairedNames.length > 0) {
+        toastr.success("\u5DF2\u521B\u5EFA\u6216\u4FEE\u590D\u9632\u6B62\u751F\u56FE Tag \u8FDB\u5165\u751F\u6587 Prompt \u7684\u5168\u5C40\u6B63\u5219\u3002");
+      } else {
+        toastr.info("\u751F\u56FE Tag Prompt \u8FC7\u6EE4\u6B63\u5219\u5DF2\u9A8C\u8BC1\u6709\u6548\u3002");
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error("[Chatu8] Failed to ensure image tag Prompt guards:", error);
+    if (notify) toastr.error("Prompt \u8FC7\u6EE4\u6B63\u5219\u68C0\u67E5\u5931\u8D25\uFF0C\u5DF2\u4FDD\u6301\u201C\u63D2\u5165\u539F\u6587\u201D\u5173\u95ED\u3002");
+    return false;
+  }
+}
 function activateAutoLLMClick() {
   debugLog("autoLLMClick.activateAutoLLMClick", "\u5C1D\u8BD5\u6FC0\u6D3B\u81EA\u52A8LLM\u70B9\u51FB\u72B6\u6001");
   if (!isAutoLLMEnabled()) {
@@ -83927,16 +84018,27 @@ eventSource37.on(event_types6.GENERATION_ENDED, async (data) => {
       debugBranch("autoLLMClick.GENERATION_ENDED", "\u6D88\u606F\u957F\u5EA6\u68C0\u67E5\u901A\u8FC7", true, {
         \u6D88\u606F\u957F\u5EA6: messageContent.length
       });
-      if (extension_settings98[extensionName]?.insertOriginalText !== "true") {
+      const imageTagPromptGuardsReady = await ensureImageTagPromptGuards();
+      const insertOriginalTextEnabled = extension_settings98[extensionName]?.insertOriginalText === "true";
+      if (!imageTagPromptGuardsReady && insertOriginalTextEnabled) {
+        extension_settings98[extensionName].insertOriginalText = "false";
+        const insertTextSwitch = document.getElementById("insertOriginalText");
+        if (insertTextSwitch) insertTextSwitch.checked = false;
+        try {
+          const { saveSettingsDebounced: saveSettingsDebounced64 } = await import("../../../../script.js");
+          saveSettingsDebounced64();
+        } catch (e) {
+          console.warn("[st-chatu8] Failed to save safe insertOriginalText fallback:", e);
+        }
+        toastr.warning("\u9632\u6B62\u751F\u56FE Tag \u8FDB\u5165 Prompt \u7684\u6B63\u5219\u4E0D\u53EF\u7528\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u201C\u63D2\u5165\u539F\u6587\u201D\u5E76\u6539\u7528\u9690\u85CF\u6570\u636E\u5B58\u50A8\u3002");
+      } else if (imageTagPromptGuardsReady && !insertOriginalTextEnabled) {
         extension_settings98[extensionName].insertOriginalText = "true";
-        console.log("[st-chatu8] Auto-enabled insertOriginalText due to message length > 200");
-        debugLog("autoLLMClick.GENERATION_ENDED", "\u81EA\u52A8\u542F\u7528 insertOriginalText", {
+        console.log("[st-chatu8] Auto-enabled insertOriginalText after verifying Prompt guards");
+        debugLog("autoLLMClick.GENERATION_ENDED", "\u9A8C\u8BC1 Prompt \u8FC7\u6EE4\u540E\u81EA\u52A8\u542F\u7528 insertOriginalText", {
           \u539F\u56E0: "\u6D88\u606F\u957F\u5EA6 > 200"
         });
         const insertTextSwitch = document.getElementById("insertOriginalText");
-        if (insertTextSwitch) {
-          insertTextSwitch.checked = true;
-        }
+        if (insertTextSwitch) insertTextSwitch.checked = true;
         try {
           const { saveSettingsDebounced: saveSettingsDebounced64 } = await import("../../../../script.js");
           saveSettingsDebounced64();
@@ -83996,6 +84098,21 @@ eventSource37.on("js_generation_ended", async (data) => {
 function initAutoLLMClick() {
   console.log("[st-chatu8] autoLLMClick module initialized");
   debugLog("autoLLMClick.initAutoLLMClick", "autoLLMClick \u6A21\u5757\u5DF2\u521D\u59CB\u5316");
+  if (extension_settings98[extensionName]?.insertOriginalText === "true") {
+    ensureImageTagPromptGuards().then(async (ready) => {
+      if (ready || extension_settings98[extensionName]?.insertOriginalText !== "true") return;
+      extension_settings98[extensionName].insertOriginalText = "false";
+      const insertTextSwitch = document.getElementById("insertOriginalText");
+      if (insertTextSwitch) insertTextSwitch.checked = false;
+      try {
+        const { saveSettingsDebounced: saveSettingsDebounced64 } = await import("../../../../script.js");
+        saveSettingsDebounced64();
+      } catch (e) {
+        console.warn("[st-chatu8] Failed to save startup safety fallback:", e);
+      }
+      toastr.warning("\u751F\u56FE Tag Prompt \u8FC7\u6EE4\u65E0\u6CD5\u9A8C\u8BC1\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u201C\u63D2\u5165\u539F\u6587\u201D\u3002");
+    });
+  }
 }
 
 // utils/ui.js
@@ -84934,114 +85051,9 @@ async function initUI({ check_update: check_update2 }) {
     settings2.ReferenceStrength = value;
     saveSettingsDebounced62();
   });
-  const CHATU8_IMAGE_REGEX_SCRIPT_NAME = "st-chatu8-\u4E0D\u53D1\u9001image\u6807\u7B7E";
-  const CHATU8_IMAGE_REGEX_SCRIPT = {
-    scriptName: CHATU8_IMAGE_REGEX_SCRIPT_NAME,
-    findRegex: "/<image>[\\s\\S]*?<\\/image>/g",
-    replaceString: "",
-    trimStrings: [],
-    placement: [1, 2],
-    disabled: false,
-    markdownOnly: false,
-    promptOnly: true,
-    runOnEdit: true,
-    substituteRegex: 0,
-    minDepth: null,
-    maxDepth: null
-  };
-  const CHATU8_IMGTHINK_REGEX_SCRIPT_NAME = "st-chatu8-\u9690\u85CFimgthink";
-  const CHATU8_IMGTHINK_REGEX_SCRIPT = {
-    scriptName: CHATU8_IMGTHINK_REGEX_SCRIPT_NAME,
-    findRegex: "/<imgthink>[\\s\\S]*?<\\/imgthink>/g",
-    replaceString: "",
-    trimStrings: [],
-    placement: [2],
-    disabled: false,
-    markdownOnly: true,
-    promptOnly: true,
-    runOnEdit: true,
-    substituteRegex: 0,
-    minDepth: null,
-    maxDepth: null
-  };
   async function handleInsertOriginalTextRegex(enable) {
-    if (!enable) return;
-    try {
-      const regexEngine = await import("../../regex/engine.js");
-      if (!regexEngine.getScriptsByType || !regexEngine.SCRIPT_TYPES) {
-        console.warn("[Chatu8] ST \u6B63\u5219\u5F15\u64CE\u7248\u672C\u8FC7\u65E7\uFF0C\u65E0\u6CD5\u81EA\u52A8\u7BA1\u7406\u6B63\u5219\u811A\u672C");
-        return;
-      }
-      const globalScripts = regexEngine.getScriptsByType(regexEngine.SCRIPT_TYPES.GLOBAL) || [];
-      const existingImageScript = globalScripts.find((s) => s.scriptName === CHATU8_IMAGE_REGEX_SCRIPT_NAME);
-      const existingImgthinkScript = globalScripts.find((s) => s.scriptName === CHATU8_IMGTHINK_REGEX_SCRIPT_NAME);
-      let needsSave = false;
-      const createdScripts = [];
-      if (!existingImageScript) {
-        const newScript = {
-          ...CHATU8_IMAGE_REGEX_SCRIPT,
-          id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2)
-        };
-        globalScripts.push(newScript);
-        needsSave = true;
-        createdScripts.push(CHATU8_IMAGE_REGEX_SCRIPT_NAME);
-        console.log("[Chatu8] \u5DF2\u521B\u5EFA\u5168\u5C40\u6B63\u5219\u811A\u672C:", CHATU8_IMAGE_REGEX_SCRIPT_NAME);
-      }
-      if (!existingImgthinkScript) {
-        const newScript = {
-          ...CHATU8_IMGTHINK_REGEX_SCRIPT,
-          id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2)
-        };
-        globalScripts.push(newScript);
-        needsSave = true;
-        createdScripts.push(CHATU8_IMGTHINK_REGEX_SCRIPT_NAME);
-        console.log("[Chatu8] \u5DF2\u521B\u5EFA\u5168\u5C40\u6B63\u5219\u811A\u672C:", CHATU8_IMGTHINK_REGEX_SCRIPT_NAME);
-      }
-      if (needsSave) {
-        await regexEngine.saveScriptsByType(globalScripts, regexEngine.SCRIPT_TYPES.GLOBAL);
-        const { saveSettingsDebounced: stSaveSettings } = await import("../../../../../script.js");
-        stSaveSettings();
-        let countdown = 6;
-        const toastId = `chatu8-refresh-${Date.now()}`;
-        const toastHtml = `
-                    <div id="${toastId}" style="text-align: center; padding: 10px 5px; line-height: 1.6;">
-                        <div style="margin-bottom: 15px; word-break: break-word;">
-                            <b>\u5DF2\u521B\u5EFA\u5168\u5C40\u6B63\u5219\uFF1A</b><br/>
-                            ${createdScripts.join("<br/>")}
-                        </div>
-                        <div style="margin-bottom: 20px;">
-                            \u5C06\u5728 <span id="${toastId}-timer" style="font-weight:bold; font-size:1.4em; color: var(--SmartThemeAlertColor, #ff9999);">${countdown}</span> \u79D2\u540E\u81EA\u52A8\u5237\u65B0\u9875\u9762\u4EE5\u751F\u6548
-                        </div>
-                        <button id="${toastId}-cancel" class="menu_button" style="white-space: nowrap; width: fit-content; margin: 0 auto; padding: 8px 24px; display: block; border-radius: 5px; font-weight: bold;">\u53D6\u6D88\u81EA\u52A8\u5237\u65B0</button>
-                    </div>
-                `;
-        const toastrOpts = { timeOut: 0, extendedTimeOut: 0, tapToDismiss: false, escapeHtml: false };
-        const $toast = toastr.success(toastHtml, "\u81EA\u52A8\u8BBE\u7F6E\u6B63\u5219", toastrOpts);
-        const intervalId = setInterval(() => {
-          countdown--;
-          const timerEl = document.getElementById(`${toastId}-timer`);
-          if (timerEl) timerEl.innerText = countdown;
-          if (countdown <= 0) {
-            clearInterval(intervalId);
-            location.reload();
-          }
-        }, 1e3);
-        $(document).one("click", `#${toastId}-cancel`, function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          clearInterval(intervalId);
-          $(this).closest(".toast").remove();
-          if ($toast && $toast.length) {
-            toastr.clear($toast);
-          }
-          toastr.info("\u5DF2\u53D6\u6D88\u81EA\u52A8\u5237\u65B0\uFF0C\u9700\u624B\u52A8\u5237\u65B0\u9875\u9762\u540E\u751F\u6548\u3002");
-        });
-      } else {
-        toastr.info("\u5168\u5C40\u6B63\u5219\u5DF2\u5B58\u5728");
-      }
-    } catch (error) {
-      console.error("[Chatu8] \u521B\u5EFA ST \u6B63\u5219\u811A\u672C\u5931\u8D25:", error);
-    }
+    if (!enable) return true;
+    return await ensureImageTagPromptGuards({ notify: true });
   }
   settingsModal.on("change", "#helpTipsEnabled", function() {
     const isEnabled = $(this).prop("checked");
@@ -85057,9 +85069,14 @@ async function initUI({ check_update: check_update2 }) {
   });
   settingsModal.find("#insertOriginalText").on("change", async function() {
     const isEnabled = $(this).prop("checked");
+    if (isEnabled && !await handleInsertOriginalTextRegex(true)) {
+      $(this).prop("checked", false);
+      settings2.insertOriginalText = "false";
+      saveSettingsDebounced62();
+      return;
+    }
     settings2.insertOriginalText = isEnabled.toString();
     saveSettingsDebounced62();
-    await handleInsertOriginalTextRegex(isEnabled);
   });
   settingsModal.find("#convertToJpegStorage").on("change", function() {
     const isEnabled = $(this).prop("checked");
@@ -85080,11 +85097,17 @@ async function initUI({ check_update: check_update2 }) {
       const changes = [];
       const insertTextSwitch = settingsModal.find("#insertOriginalText");
       if (insertTextSwitch.length && !insertTextSwitch.prop("checked")) {
-        insertTextSwitch.prop("checked", true);
-        settings2.insertOriginalText = "true";
-        saveSettingsDebounced62();
-        await handleInsertOriginalTextRegex(true);
-        changes.push('\u5DF2\u5F00\u542F"\u63D2\u5165\u539F\u6587(\u975E\u540C\u5C42)"');
+        if (await handleInsertOriginalTextRegex(true)) {
+          insertTextSwitch.prop("checked", true);
+          settings2.insertOriginalText = "true";
+          saveSettingsDebounced62();
+          changes.push('\u5DF2\u5F00\u542F"\u63D2\u5165\u539F\u6587(\u975E\u540C\u5C42)"');
+        } else {
+          insertTextSwitch.prop("checked", false);
+          settings2.insertOriginalText = "false";
+          saveSettingsDebounced62();
+          changes.push('\u9632\u6CC4\u9732\u6B63\u5219\u4E0D\u53EF\u7528\uFF0C\u5DF2\u4FDD\u6301"\u63D2\u5165\u539F\u6587"\u5173\u95ED');
+        }
       }
       if (extension_settings99[extensionName]?.imageGenDemandEnabled) {
         extension_settings99[extensionName].imageGenDemandEnabled = false;
