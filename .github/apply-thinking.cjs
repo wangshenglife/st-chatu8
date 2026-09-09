@@ -1,4 +1,4 @@
-// Reapply this fork's DeepSeek thinking controls after upstream version updates.
+// Reapply this fork's model-aware thinking controls after upstream version updates.
 const fs = require('node:fs');
 const file = 'index.js';
 let source = fs.readFileSync(file, 'utf8');
@@ -38,5 +38,20 @@ replace('    if (updateResultUI && attempt === 0) {', '    applyManualLlmThinkin
 const marker = source.indexOf('const { api_url, api_key, model, temperature, top_p, max_tokens, stream, bypass_proxy } = profileData;');
 const tail = source.slice(marker);
 source = source.slice(0, marker) + tail.replace('applyManualLlmThinking(requestBody, config, !bypass_proxy);', 'applyManualLlmThinking(requestBody, profileData, !bypass_proxy);');
-replace('    const body = { model, messages, temperature, top_p, max_tokens, stream: false };', '    const body = applyManualLlmThinking({ model, messages, temperature, top_p, max_tokens, stream: false }, currentData, !bypass_proxy);');
+const legacyTestBody = '    const body = { model, messages, temperature, top_p, max_tokens, stream: false };';
+if (source.includes(legacyTestBody)) {
+  replace(legacyTestBody, '    const body = applyManualLlmThinking({ model, messages, temperature, top_p, max_tokens, stream: false }, currentData, !bypass_proxy);');
+} else {
+  // 3.0.2+ builds the test body incrementally so individual model parameters can
+  // be omitted. Apply the saved thinking selection after custom body parameters,
+  // matching the precedence used by the two real request paths.
+  const testStart = source.indexOf('async function onTestLLMClick() {');
+  const testEnd = source.indexOf('function buildPrompt()', testStart);
+  if (testStart < 0 || testEnd < 0) throw new Error('Thinking test request function missing');
+  const testBlock = source.slice(testStart, testEnd);
+  const testAnchor = '    const customHeadersMap = currentData.enable_custom_headers ? parseCustomHeaders(currentData.custom_headers) : {};';
+  if (testBlock.split(testAnchor).length !== 2) throw new Error('Thinking test request anchor mismatch');
+  const patchedTestBlock = testBlock.replace(testAnchor, `    applyManualLlmThinking(body, currentData, !bypass_proxy);\n${testAnchor}`);
+  source = source.slice(0, testStart) + patchedTestBlock + source.slice(testEnd);
+}
 fs.writeFileSync(file, source);
