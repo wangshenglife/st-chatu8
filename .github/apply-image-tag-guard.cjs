@@ -14,9 +14,12 @@ const autoAliasMatch = source.match(/const autoLLMImageGen = (extension_settings
 if (!autoAliasMatch) throw new Error('Image tag guard could not resolve auto-LLM settings alias');
 const settingsAlias = autoAliasMatch[1];
 
-const activateIndex = requiredIndex('function activateAutoLLMClick() {');
+// Keep this anchor on the stable feature gate. Upstream 3.0.5 removed the old
+// activateAutoLLMClick timer while retaining isAutoLLMEnabled and the same
+// insertOriginalText behavior.
+const autoLlmModuleIndex = requiredIndex('function isAutoLLMEnabled() {');
 const guardRuntime = fs.readFileSync('.github/image-tag-prompt-guard.js', 'utf8').trimEnd();
-source = source.slice(0, activateIndex) + guardRuntime + '\n' + source.slice(activateIndex);
+source = source.slice(0, autoLlmModuleIndex) + guardRuntime + '\n' + source.slice(autoLlmModuleIndex);
 
 const autoEnableNeedle = `      if (${settingsAlias}[extensionName]?.insertOriginalText !== "true") {`;
 const autoStart = requiredIndex(autoEnableNeedle);
