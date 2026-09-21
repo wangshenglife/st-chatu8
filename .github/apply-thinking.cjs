@@ -34,10 +34,17 @@ replace('  sendImagesToggle = $("#ch-llm_send_images");', `  sendImagesToggle = 
       '<small>随 API 预设保存；中转需支持 thinking / reasoning_effort 参数。</small></label>');
   }`);
 replace('    if (updateResultUI && attempt === 0) {', '    applyManualLlmThinking(requestBody, config, !bypass_proxy);\n    if (updateResultUI && attempt === 0) {', 2);
-// The second request handler reads profileData instead of effective config.
-const marker = source.indexOf('const { api_url, api_key, model, temperature, top_p, max_tokens, stream, bypass_proxy } = profileData;');
-const tail = source.slice(marker);
-source = source.slice(0, marker) + tail.replace('applyManualLlmThinking(requestBody, config, !bypass_proxy);', 'applyManualLlmThinking(requestBody, profileData, !bypass_proxy);');
+// The default request handler reads profileData instead of effective config.
+// Locate the handler itself rather than one of its implementation lines: upstream
+// may refactor the profile destructuring without changing this public boundary.
+const defaultRequestStart = source.indexOf('async function executeDefaultLLMRequest(');
+if (defaultRequestStart < 0) throw new Error('Thinking default request handler missing');
+const configThinkingCall = '    applyManualLlmThinking(requestBody, config, !bypass_proxy);\n';
+const defaultThinkingCall = source.indexOf(configThinkingCall, defaultRequestStart);
+if (defaultThinkingCall < 0) throw new Error('Thinking default request call missing');
+source = source.slice(0, defaultThinkingCall)
+  + configThinkingCall.replace('config', 'profileData')
+  + source.slice(defaultThinkingCall + configThinkingCall.length);
 const legacyTestBody = '    const body = { model, messages, temperature, top_p, max_tokens, stream: false };';
 if (source.includes(legacyTestBody)) {
   replace(legacyTestBody, '    const body = applyManualLlmThinking({ model, messages, temperature, top_p, max_tokens, stream: false }, currentData, !bypass_proxy);');
